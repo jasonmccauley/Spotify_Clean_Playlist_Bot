@@ -48,30 +48,65 @@ class Playlist:
                 artist=track['artists'][0]['name'],
                 is_clean=not track.get('explicit', False)
             ))
+
+# base abstract SpotifyBot class
+class SpotifyBot(ABC):
+    @abstractmethod
+    def authenticate(self) -> bool:
+        pass
     
-class SpotifyAuthenticator:
+    @abstractmethod
+    def search_track(self, track: Track) -> Optional[Track]:
+        pass
+    
+    @abstractmethod
+    def create_playlist(self, name: str, description: str = "") -> Optional[str]:
+        pass
+    
+    @abstractmethod
+    def add_tracks(self, playlist_id: str, track_ids: list[str]) -> bool:
+        pass
+    
+    @abstractmethod
+    def get_playlist(self, playlist_id: str) -> Optional[Playlist]:
+        pass
+
+class SpotifyAuthenticator(SpotifyBot):
     def __init__(self, client_id: str, client_secret: str, redirect_uri: str):
         self.client_id = client_id
         self.client_secret = client_secret
         self.redirect_uri = redirect_uri
         self.sp = None
     
-    def authorize(self) -> spotipy.Spotify:
+    def authenticate(self) -> spotipy.Spotify:
         # set up the authentication for Spotify API
         try:
-            sp = spotipy.Spotify(auth_manager = SpotifyOAuth(
+            self.sp = spotipy.Spotify(auth_manager = SpotifyOAuth(
                 client_id = self.client_id,
                 client_secret = self.client_secret,
                 redirect_uri = self.redirect_uri,
                 scope = "playlist-modify-public playlist-read-private"
             ))
             logging.info("Successfully authenticated with Spotify Web API")
-            return sp
+            return True
         except Exception as e:
             logging.error(f"Authentication failed: {str(e)}")
-            raise
+            return False
 
-class SpotifyTrackSearcher:
+    # implement other abstract methods with pass
+    def search_track(self, track: Track) -> Optional[Track]:
+        pass
+
+    def create_playlist(self, name: str, description: str = "") -> Optional[str]:
+        pass
+
+    def add_tracks(self, playlist_id: str, track_ids: list[str]) -> bool:
+        pass
+
+    def get_playlist(self, playlist_id: str) -> Optional[Playlist]:
+        pass
+
+class SpotifyTrackSearcher(SpotifyBot):
     def __init__(self, spotify_client: spotipy.Spotify):
         self.sp = spotify_client
 
@@ -98,10 +133,51 @@ class SpotifyTrackSearcher:
         except Exception as e:
             logging.error(f"Error searching for track: {str(e)}")
             return None
+        
+    def authenticate(self) -> bool:
+        pass
 
-class SpotifyPlaylistManager:
+    def create_playlist(self, name: str, description: str = "") -> Optional[str]:
+        pass
+
+    def add_tracks(self, playlist_id: str, track_ids: list[str]) -> bool:
+        pass
+
+    def get_playlist(self, playlist_id: str) -> Optional[Playlist]:
+        pass
+
+class SpotifyPlaylistManager(SpotifyBot):
     def __init__(self, spotify_client: spotipy.Spotify):
         self.sp = spotify_client
+
+    def get_playlist(self, playlist_id: str) -> Optional[Playlist]:
+        try:
+            # get playlist data from Spotify API
+            playlist_data = self.sp.playlist(playlist_id)
+
+            # create new Playlist object
+            playlist = Playlist(
+                id=playlist_data['id'],
+                name=playlist_data['name']
+            )
+            
+            # get all tracks (handling pagination)
+            tracks = []
+            results = playlist_data['tracks']
+            tracks.extend(results['items'])
+            
+            while results['next']:
+                results = self.sp.next(results)
+                tracks.extend(results['items'])
+            
+            # add tracks to playlist object
+            playlist.add_track_from_items(tracks)
+            
+            return playlist
+            
+        except Exception as e:
+            logging.error(f"Error getting playlist: {str(e)}")
+            return None
 
     def create_playlist(self, name: str, description: str = "") -> Optional[str]:
         # create the new playlist and return its ID
@@ -129,127 +205,128 @@ class SpotifyPlaylistManager:
         except Exception as e:
             logging.error(f"Error adding tracks: {str(e)}")
             return False
-        
-class SpotifyBot:
-    def __init__(self, client_id: str, client_secret: str, redirect_uri: str):
-        self.authenticator = SpotifyAuthenticator(client_id, client_secret, redirect_uri)
-        self.spotify_client = None
-        self.track_searcher = None
-        self.playlist_manager = None
-
+    
     def authenticate(self) -> bool:
-        # authenticate with spotify
-        try:
-            self.spotify_client = self.authenticator.authorize()
-            self.track_searcher = SpotifyTrackSearcher(self.spotify_client)
-            self.playlist_manager = SpotifyPlaylistManager(self.spotify_client)
-            return True
-        except Exception:
-            return False
-        
-    def get_playlist(self, playlist_id: str) -> Optional[Playlist]:
-        # get playlist and its tracks
-        try:
-            playlist_data = self.spotify_client.playlist(playlist_id)
+        pass
 
-            # create playlist instance
-            playlist = Playlist(playlist_data['id'], playlist_data['name'])
+    def search_track(self, track: Track) -> Optional[Track]:
+        pass
 
-            # fetch all tracks using pagination
-            tracks = playlist_data['tracks']
-            playlist.add_track_from_items(tracks['items'])
-
-            # continue fetching tracks if there are more
-            while tracks['next']:
-                tracks = self.spotify_client.next(tracks)
-                playlist.add_track_from_items(tracks['items'])
-
-            return playlist
-        except Exception as e:
-            logging.error(f"Error getting playlist: {str(e)}")
-            return None
-
-    def create_clean_playlist(self, playlist: Playlist) -> Optional[str]:
-        # create a clean version of the given playlist
-        try:
-            # create new playlist
-            clean_playlist_id = self.playlist_manager.create_playlist(
-                f"{playlist.name} (Clean)",
-                "Clean version generated by SpotifyBot"
-            )
-            if not clean_playlist_id:
-                return None
-            
-            clean_track_ids = []
-            
-            # process each track
-            for track in playlist.tracks:
-                if track.is_clean:
-                    # if track is already clean, append it
-                    clean_track_ids.append(track.id)
-                else:
-                    # search for clean version
-                    clean_track = self.track_searcher.search_track(track)
-                    if clean_track:
-                        clean_track_ids.append(clean_track.id)
-                    else:
-                        logging.warning(f"No clean version found for: {track}")
-            
-            # add tracks to new playlist
-            if clean_track_ids:
-                self.playlist_manager.add_tracks(clean_playlist_id, clean_track_ids)
-            
-            return clean_playlist_id
-        except Exception as e:
-            logging.error(f"Error creating clean playlist: {str(e)}")
-            return None
-
-class SpotifyBotDecorator(ABC):
+class SpotifyBotDecorator(SpotifyBot, ABC):
     def __init__(self, spotify_bot):
         self._bot = spotify_bot
-    
-    @abstractmethod
-    def create_clean_playlist(self, playlist):
-        pass
-    
-    # proxy method to maintain the same interface
-    def __getattr__(self, name):
-        return getattr(self._bot, name)
 
-class LoggingDecorator(SpotifyBotDecorator):
-    def create_clean_playlist(self, playlist):
-        print("\n--- Playlist Processing ---")
-        print(f"Original Playlist: {playlist.name}")
-        print(f"Total Tracks: {playlist.get_track_count()}")
-        
+    @property
+    def sp(self):
+        return self._bot.sp
+
+# concrete decorator classes
+class AuthenticatorLoggingDecorator(SpotifyBotDecorator):
+    def authenticate(self) -> bool:
+        print("\n--- Authentication Process ---")
         start_time = time.time()
         
-        clean_tracks = [track for track in playlist.tracks if track.is_clean]
-        explicit_tracks = [track for track in playlist.tracks if not track.is_clean]
-        
-        print(f"Clean Tracks: {len(clean_tracks)}")
-        print(f"Tracks Needing Clean Version: {len(explicit_tracks)}")
-        
-        # list tracks without clean versions
-        unresolved_tracks = [track for track in explicit_tracks]
-        if unresolved_tracks:
-            print("\nTracks Needing Clean Versions:")
-            for track in unresolved_tracks:
-                print(f"  - {track}")
-        
-        # call the original create_clean_playlist method
-        clean_playlist_id = self._bot.create_clean_playlist(playlist)
+        result = self._bot.authenticate()
         
         processing_time = time.time() - start_time
+        print(f"Authentication {'Successful' if result else 'Failed'}")
+        print(f"Processing Time: {processing_time:.2f} seconds")
         
-        if clean_playlist_id:
-            print(f"\nClean Playlist Created Successfully!")
-            print(f"Clean Playlist ID: {clean_playlist_id}")
-            print(f"Processing Time: {processing_time:.2f} seconds")
+        return result
+
+    # delegate other methods to the wrapped bot
+    def search_track(self, track: Track) -> Optional[Track]:
+        return self._bot.search_track(track)
+
+    def create_playlist(self, name: str, description: str = "") -> Optional[str]:
+        return self._bot.create_playlist(name, description)
+
+    def add_tracks(self, playlist_id: str, track_ids: list[str]) -> bool:
+        return self._bot.add_tracks(playlist_id, track_ids)
+
+    def get_playlist(self, playlist_id: str) -> Optional[Playlist]:
+        return self._bot.get_playlist(playlist_id)
+
+class TrackSearcherLoggingDecorator(SpotifyBotDecorator):
+    def search_track(self, track: Track) -> Optional[Track]:
+        print(f"\n--- Searching for Clean Version ---")
+        print(f"Track: {track}")
+        start_time = time.time()
+        
+        result = self._bot.search_track(track)
+        
+        processing_time = time.time() - start_time
+        if result:
+            print(f"Found clean version: {result}")
         else:
-            print("Failed to create clean playlist")
+            print("No clean version found")
+        print(f"Search Time: {processing_time:.2f} seconds")
         
-        return clean_playlist_id
+        return result
+
+    # delegate other methods
+    def authenticate(self) -> bool:
+        return self._bot.authenticate()
+
+    def create_playlist(self, name: str, description: str = "") -> Optional[str]:
+        return self._bot.create_playlist(name, description)
+
+    def add_tracks(self, playlist_id: str, track_ids: list[str]) -> bool:
+        return self._bot.add_tracks(playlist_id, track_ids)
+
+    def get_playlist(self, playlist_id: str) -> Optional[Playlist]:
+        return self._bot.get_playlist(playlist_id)
+
+class PlaylistManagerLoggingDecorator(SpotifyBotDecorator):
+    def create_playlist(self, name: str, description: str = "") -> Optional[str]:
+        print(f"\n--- Creating Playlist ---")
+        print(f"Name: {name}")
+        start_time = time.time()
+        
+        playlist_id = self._bot.create_playlist(name, description)
+        
+        processing_time = time.time() - start_time
+        print(f"{'Successfully created' if playlist_id else 'Failed to create'} playlist")
+        print(f"Processing Time: {processing_time:.2f} seconds")
+        
+        return playlist_id
+
+    def add_tracks(self, playlist_id: str, track_ids: list[str]) -> bool:
+        print(f"\n--- Adding Tracks to Playlist ---")
+        print(f"Number of tracks to add: {len(track_ids)}")
+        start_time = time.time()
+        
+        success = self._bot.add_tracks(playlist_id, track_ids)
+        
+        processing_time = time.time() - start_time
+        print(f"{'Successfully added' if success else 'Failed to add'} tracks")
+        print(f"Processing Time: {processing_time:.2f} seconds")
+        
+        return success
+
+    def get_playlist(self, playlist_id: str) -> Optional[Playlist]:
+        print(f"\n--- Fetching Playlist ---")
+        print(f"Playlist ID: {playlist_id}")
+        start_time = time.time()
+        
+        playlist = self._bot.get_playlist(playlist_id)
+        
+        processing_time = time.time() - start_time
+        if playlist:
+            print(f"Successfully fetched playlist: {playlist}")
+            print(f"Total tracks: {playlist.get_track_count()}")
+        else:
+            print("Failed to fetch playlist")
+        print(f"Processing Time: {processing_time:.2f} seconds")
+        
+        return playlist
+
+    # delegate other methods
+    def authenticate(self) -> bool:
+        return self._bot.authenticate()
+
+    def search_track(self, track: Track) -> Optional[Track]:
+        return self._bot.search_track(track)
 
 
 def main():
@@ -258,34 +335,54 @@ def main():
     CLIENT_SECRET = os.getenv("CLIENT_SECRET")
     REDIRECT_URI = "http://localhost:8888/callback"
     
-    # initialize the bot
-    bot = SpotifyBot(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI)
+    # create and decorate the authentication bot
+    auth_bot = SpotifyAuthenticator(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI)
+    auth_bot = AuthenticatorLoggingDecorator(auth_bot)
     
-    # wrap the bot with the logging decorator
-    bot = LoggingDecorator(bot)
-
     # authenticate
-    if not bot.authenticate():
+    if not auth_bot.authenticate():
         print("Authentication failed!")
         return
+    
+    # create and decorate the playlist manager bot
+    playlist_bot = SpotifyPlaylistManager(auth_bot.sp)
+    playlist_bot = PlaylistManagerLoggingDecorator(playlist_bot)
+    
+    # create and decorate the track searcher bot
+    track_bot = SpotifyTrackSearcher(auth_bot.sp)
+    track_bot = TrackSearcherLoggingDecorator(track_bot)
     
     # get playlist ID from user
     playlist_id = input("Enter playlist ID: ")
     
-    # get playlist
-    playlist = bot.get_playlist(playlist_id)
-    if not playlist:
+    # Get playlist
+    original_playlist = playlist_bot.get_playlist(playlist_id)
+    if not original_playlist:
         print("Failed to get playlist!")
         return
     
-    print(f"Processing playlist: {playlist}")
-    
-    # create clean version
-    clean_playlist_id = bot.create_clean_playlist(playlist)
-    if clean_playlist_id:
-        print(f"Created clean playlist with ID: {clean_playlist_id}")
-    else:
+    # create new playlist
+    clean_playlist_id = playlist_bot.create_playlist(
+        f"{original_playlist.name} (Clean)",
+        "Clean version generated by SpotifyBot"
+    )
+    if not clean_playlist_id:
         print("Failed to create clean playlist!")
+        return
+    
+    # process tracks
+    clean_track_ids = []
+    for track in original_playlist.tracks:
+        if track.is_clean:
+            clean_track_ids.append(track.id)
+        else:
+            clean_track = track_bot.search_track(track)
+            if clean_track:
+                clean_track_ids.append(clean_track.id)
+    
+    # add tracks to new playlist
+    if clean_track_ids:
+        playlist_bot.add_tracks(clean_playlist_id, clean_track_ids)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
