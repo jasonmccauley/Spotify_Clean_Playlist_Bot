@@ -3,8 +3,8 @@ A Python-based automation tool that creates family-friendly versions of Spotify 
 
 
 ## Features
--**Automated Clean Playlist Creation**: Generates a new playlist with clean versions of tracks.
--**Smart Track Matching**: Intelligently searches and matches explicit tracks with their clean alternatives.
--**Batch Processing**: Efficiently handles large playlists with pagination support.
--**Robust Error Handling**: Comprehensive error management and logging system.
--**Clean Version Detection**: Automatically identifies and preserves already clean tracks.
+- **Automated Clean Playlist Creation**: Generates a new playlist with clean versions of tracks.
+- **Smart Track Matching**: Intelligently searches and matches explicit tracks with their clean alternatives.
+- **Batch Processing**: Efficiently handles large playlists with pagination support.
+- **Robust Error Handling**: Comprehensive error management and logging system.
+- **Clean Version Detection**: Automatically identifies and preserves already clean tracks.
